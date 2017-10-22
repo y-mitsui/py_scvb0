@@ -5,7 +5,7 @@
 #include <time.h>
 #include <xmmintrin.h>
 #include <emmintrin.h>
-#include "lda.h"
+#include "lda_scvb0.h"
 
 #define d_malloc(type, numb) (type*)malloc(sizeof(type) * numb)
 #define d_calloc(type, numb) (type*)calloc(sizeof(type), numb)
@@ -319,6 +319,8 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
         
         ctx->rhoPhi = 10. / pow(1000. + i, 0.9);
         ctx->rhoTheta = 1. / pow(10. + i, 0.9);
+        /*ctx->rhoPhi = 0.1;
+        ctx->rhoTheta = 0.1;*/
         
         for (j=0; j < ctx->batch_size; j++){
             doc_indxes[j] = xor128() % n_document;
@@ -338,23 +340,13 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
 	}
 	
     scvb0EstTheta(ctx, ctx->Theta);
-    FILE *fp = fopen("data/doc_topics.csv", "w");
-    for(d=0; d < n_document; d++){
-		for(k=0; k < ctx->n_topic; k++){
-			if (k == ctx->n_topic - 1)
-				fprintf(fp, "%f\n", ctx->Theta[d * ctx->n_topic + k]);
-			else
-				fprintf(fp, "%f,", ctx->Theta[d * ctx->n_topic + k]);
-		}
-	}
-    fclose(fp);
 
     free(ctx->gamma);
     free(ctx->nzHat);
     free(ctx->nPhiHat);
     free(ctx->nz);
     free(ctx->nTheta);
-    free(ctx->Theta);
+    //free(ctx->Theta);
     ctx->Phi = d_malloc(double, ctx->n_word_type * ctx->n_topic);
     for (k = 0; k < ctx->n_topic; k++) {
         double normSum = 0;
