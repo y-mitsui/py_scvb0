@@ -7,8 +7,26 @@
 #include <emmintrin.h>
 #include "lda_scvb0.h"
 
-#define d_malloc(type, numb) (type*)malloc(sizeof(type) * numb)
-#define d_calloc(type, numb) (type*)calloc(sizeof(type), numb)
+#define d_malloc(type, numb) (type*)debug_malloc(sizeof(type) * numb)
+#define d_calloc(type, numb) (type*)debug_calloc(sizeof(type), numb)
+
+void *debug_malloc(size_t size) {
+	void *p = malloc(size);
+	if (p == NULL){
+		fprintf(stderr, "out of memory %dB",size);
+		exit(0);
+	}
+	return p;
+}
+
+void *debug_calloc(size_t size, size_t numb) {
+	void *p = calloc(size, numb);
+	if (p == NULL){
+		fprintf(stderr, "out of memory %dB", size);
+		exit(0);
+	}
+	return p;
+}
 
 unsigned long xor128(){ 
     static unsigned long x=123456789,y=362436069,z=521288629,w=88675123; 
@@ -32,9 +50,8 @@ void scvb0Save(Scvb0 *ctx, const char *path){
     fwrite(&ctx->alpha, sizeof(double), 1, fp);
     fwrite(&ctx->beta, sizeof(double), 1, fp);
     
-    //fwrite(ctx->nTheta, sizeof(double), ctx->n_document * ctx->n_topic, fp);
+    fwrite(ctx->Theta, sizeof(double), ctx->n_document * ctx->n_topic, fp);
     fwrite(ctx->Phi, sizeof(double), ctx->n_word_type * ctx->n_topic, fp);
-    //fwrite(ctx->nz, sizeof(double), ctx->n_topic, fp);
     fclose(fp);
     
 }
@@ -43,7 +60,7 @@ Scvb0 *scvb0Load(const char *path){
     FILE *fp;
     Scvb0 *ctx = d_malloc(Scvb0, 1);
     
-    if(!(fp = fopen(path/*"data/scvb_data.dat"*/,"rb"))) {
+    if(!(fp = fopen(path,"rb"))) {
         return NULL;
     }
     fread(&ctx->n_topic, sizeof(int), 1, fp);
@@ -55,20 +72,53 @@ Scvb0 *scvb0Load(const char *path){
     fread(&ctx->alpha, sizeof(double), 1, fp);
     fread(&ctx->beta, sizeof(double), 1, fp);
     
-    //ctx->gamma = d_malloc(double, ctx->n_topic);
-    //ctx->nzHat = d_malloc(double, ctx->n_topic);
-    //ctx->nPhiHat = d_malloc(double, ctx->n_word_type * ctx->n_topic);
-    //ctx->nz = d_malloc(double, ctx->n_topic);
-    //ctx->nPhi = d_malloc(double, ctx->n_word_type * ctx->n_topic);
-    //ctx->nTheta = malloc(sizeof(double) * ctx->n_document * ctx->n_topic);
     ctx->Phi = d_malloc(double, ctx->n_word_type * ctx->n_topic);
-    //ctx->Theta = malloc(sizeof(double) * ctx->n_document * ctx->n_topic);
+    ctx->Theta = malloc(sizeof(double) * ctx->n_document * ctx->n_topic);
     
-    //fwrite(ctx->nTheta, sizeof(double), ctx->n_document * ctx->n_topic, fp);
+    fread(ctx->Theta, sizeof(double), ctx->n_document * ctx->n_topic, fp);
     fread(ctx->Phi, sizeof(double), ctx->n_word_type * ctx->n_topic, fp);
-    //fread(ctx->nz, sizeof(double), ctx->n_topic, fp);
     fclose(fp);
+
     return ctx;
+}
+
+int scvb0Sample(const char *path, int ***word_indexes_r, unsigned short ***word_counts_r, int **n_word_type_each_doc_r, int **n_word_each_doc_r, unsigned long long *n_all_word_r, int *n_document_r, int *n_word_type_r){
+	int n_document;
+	FILE *fp_word_indexes = fopen(path, "rb");
+	if(!fp_word_indexes) return -1;
+	fread(&n_document, sizeof(int), 1, fp_word_indexes);
+	int **word_indexes = malloc(sizeof(int*) * n_document);
+	unsigned short **word_counts = malloc(sizeof(unsigned short*) * n_document);
+	int *n_word_type_each_doc = malloc(sizeof(int) * n_document);
+	int *n_word_each_doc = malloc(sizeof(int) * n_document);
+	unsigned long long n_all_word = 0;
+	int n_word_type=0;
+	int i, j;
+	for (i=0; i < n_document; i++) {
+		fread(&n_word_type_each_doc[i], sizeof(int), 1, fp_word_indexes);
+		word_indexes[i] = (int*)malloc(sizeof(int) * n_word_type_each_doc[i]);
+		word_counts[i] = (unsigned short*)malloc(sizeof(unsigned short) * n_word_type_each_doc[i]);
+		for (j=0; j < n_word_type_each_doc[i]; j++) {
+			fread(&word_indexes[i][j], sizeof(int), 1, fp_word_indexes);
+			fread(&word_counts[i][j], sizeof(unsigned short), 1, fp_word_indexes);
+			n_word_each_doc[i] += word_counts[i][j];
+			n_all_word += word_counts[i][j];
+			if (n_word_type < word_indexes[i][j])
+				n_word_type = word_indexes[i][j];
+		}
+	}
+	fclose(fp_word_indexes);
+
+	n_word_type++;
+	*word_indexes_r = word_indexes;
+	*word_counts_r = word_counts;
+	*n_word_type_each_doc_r = n_word_type_each_doc;
+	*n_word_each_doc_r = n_word_each_doc;
+	*n_all_word_r = n_all_word;
+	*n_document_r = n_document;
+	*n_word_type_r = n_word_type;
+	return 0;
+
 }
 
 Scvb0* scvb0Init(int n_topic, int n_iter, int batch_size, double alpha, double beta){
@@ -146,9 +196,6 @@ double perplexity(Scvb0 *ctx, int **word_indexes_ptr, unsigned short** word_coun
         }
     }
     return exp(log_per / N);
-}
-
-void scvb0InferThread(){
 }
 
 double *scvb0TransformSingle(Scvb0 *ctx, int *doc_word, int n_word, int max_iter){
@@ -274,16 +321,6 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
     ctx->n_all_word = n_all_word;
     ctx->n_word_type = n_word_type;
     ctx->n_document = n_document;
-    /*
-    ctx->n_word_type = -1;
-    for(d=0; d < n_document; d++){
-        for (v = 0; v < n_word_type_each_doc[d]; v++) {
-            if (ctx->n_word_type < word_indexes_ptr[d][v]){
-                ctx->n_word_type = word_indexes_ptr[d][v];
-            }
-        }
-    }
-    ctx->n_word_type++;*/
 
     ctx->gamma = d_malloc(double, ctx->n_topic);
     ctx->nzHat = d_malloc(double, ctx->n_topic);
@@ -293,8 +330,7 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
     ctx->nTheta = d_malloc(double, n_document * ctx->n_topic);
     ctx->Theta = d_malloc(double, n_document * ctx->n_topic);
     
-    
-
+    fprintf(stderr, "ctx->n_word_type:%d ctx->n_topic:%d\n", ctx->n_word_type, ctx->n_topic);
     for(k=0; k < ctx->n_topic; k++){
         double sum_nPhi = 0.;
         for(v=0; v < ctx->n_word_type; v++){
@@ -312,8 +348,9 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
 
     int *doc_indxes = d_malloc(int, ctx->batch_size);
     clock_t t1 = clock();
+
     for(i=0; i < ctx->n_iter; i++){
-        if ((i % 500) == 0){
+        if ((i + 1) % 500 == 0){
             printf("perplexity:%f\n", perplexity(ctx, word_indexes_ptr, word_counts_ptr,n_word_type_each_doc));
         }
         
@@ -334,8 +371,8 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
                     ctx->batch_size,
                     doc_indxes);
         
-        if (i % 500 == 0)
-			printf("%d / %d (%.3lfsec)\n", i, ctx->n_iter, ((double)clock() - t1) / CLOCKS_PER_SEC);
+        if ((i + 1) % 10 == 0)
+			printf("%d / %d (%.3lfsec)\n", i + 1, ctx->n_iter, ((double)clock() - t1) / CLOCKS_PER_SEC);
         t1 = clock();
 	}
 	
@@ -358,12 +395,25 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
         }
     }
     free(ctx->nPhi);
-    
 }
+
 double *scvb0FitTransform(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_ptr, int* n_word_each_doc, int* n_word_type_each_doc,unsigned long long n_all_word, int n_document, int n_word_type){
     scvb0Fit(ctx, word_indexes_ptr, word_counts_ptr, n_word_each_doc, n_word_type_each_doc, n_all_word, n_document, n_word_type);
     scvb0EstTheta(ctx, ctx->Theta);
     return ctx->Theta;
 }
 
+void scvb0FitFile(Scvb0 *ctx, const char *path) {
+	int **word_indexes;
+	unsigned short **word_counts;
+	int *n_word_type_each_doc, *n_word_each_doc;
+	int n_document, n_word_type;
+	unsigned long long n_all_word;
 
+	scvb0Sample(path, &word_indexes, &word_counts, &n_word_type_each_doc, &n_word_each_doc, &n_all_word, &n_document, &n_word_type);
+	scvb0Fit(ctx, word_indexes, word_counts, n_word_each_doc, n_word_type_each_doc, n_all_word, n_document, n_word_type);
+	free(word_indexes);
+	free(word_counts);
+	free(n_word_type_each_doc);
+	free(n_word_each_doc);
+}
