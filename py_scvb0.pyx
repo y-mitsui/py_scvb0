@@ -9,7 +9,7 @@ cdef extern from "lda_scvb0.h":
         int n_document
         int n_word_type
         
-    Scvb0* scvb0Init(int n_topic, int n_iter, int batch_size, double alpha, double beta)
+    Scvb0* scvb0Init(int n_topic, int n_iter, int batch_size, int n_thread, double alpha, double beta)
     void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_ptr, int* n_word_each_doc, int* n_word_type_each_doc,unsigned long n_all_word, int n_document, int n_word_type)
     void scvb0Save(Scvb0 *ctx, const char *path)
     Scvb0 *scvb0Load(const char *path)
@@ -21,8 +21,8 @@ cdef class PyScvb0:
     cdef Scvb0* scvb0
     cdef int n_topics
     
-    def __init__(self, n_topics=10, alpha=0.1, beta=0.01, n_iter=2000, batch_size=256):
-        self.scvb0 = scvb0Init(n_topics, n_iter, batch_size, alpha, beta)
+    def __init__(self, n_topics=10, alpha=0.1, beta=0.01, n_iter=2000, batch_size=256, n_thread=1):
+        self.scvb0 = scvb0Init(n_topics, n_iter, batch_size, n_thread, alpha, beta)
         self.n_topics = n_topics
     
     def save(self, file_path):
