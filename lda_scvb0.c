@@ -135,6 +135,7 @@ Scvb0* scvb0Init(int n_topic, int n_iter, int batch_size, int n_thread, double a
 
 void scvb0Free(Scvb0* ctx){
     free(ctx->Phi);
+    free(ctx->Theta);
     free(ctx);
 }
 
