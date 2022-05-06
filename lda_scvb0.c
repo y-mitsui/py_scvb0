@@ -3,9 +3,6 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
-#include <xmmintrin.h>
-#include <emmintrin.h>
-#include <pthread.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include "lda_scvb0.h"
@@ -13,14 +10,10 @@
 #define d_malloc(type, numb) (type*)debug_malloc(sizeof(type) * numb)
 #define d_calloc(type, numb) (type*)debug_calloc(sizeof(type), numb)
 
-int getCpuNum(){
-	return sysconf(_SC_NPROCESSORS_CONF);
-}
-
 void *debug_malloc(size_t size) {
 	void *p = malloc(size);
 	if (p == NULL){
-		fprintf(stderr, "out of memory %dB",size);
+		fprintf(stderr, "out of memory %luB",size);
 		exit(0);
 	}
 	return p;
@@ -29,7 +22,7 @@ void *debug_malloc(size_t size) {
 void *debug_calloc(size_t size, size_t numb) {
 	void *p = calloc(size, numb);
 	if (p == NULL){
-		fprintf(stderr, "out of memory %dB", size);
+		fprintf(stderr, "out of memory %luB", size);
 		exit(0);
 	}
 	return p;
@@ -60,7 +53,6 @@ void scvb0Save(Scvb0 *ctx, const char *path){
     fwrite(ctx->Theta, sizeof(double), ctx->n_document * ctx->n_topic, fp);
     fwrite(ctx->Phi, sizeof(double), ctx->n_word_type * ctx->n_topic, fp);
     fclose(fp);
-    
 }
 
 Scvb0 *scvb0Load(const char *path){
@@ -142,11 +134,6 @@ Scvb0* scvb0Init(int n_topic, int n_iter, int batch_size, int n_thread, double a
 }
 
 void scvb0Free(Scvb0* ctx){
-    /*free(ctx->gamma);
-    free(ctx->nzHat);
-    free(ctx->nPhiHat);
-    free(ctx->nz);
-    free(ctx->nPhi);*/
     free(ctx->Phi);
     free(ctx);
 }
@@ -250,9 +237,6 @@ double *scvb0TransformSingle(Scvb0 *ctx, int *doc_word, int n_word, int max_iter
     return result;
 }
 
-#pragma GCC optimize ("O3")
-#pragma GCC target ("sse4")
-
 static void scvb0Infer(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_ptr, int* n_word_each_doc, int* n_word_type_each_doc,int doc_id_offset, int n_document, int *index_offset){
     int i, j, d, v, k;
     double sum_gamma;
@@ -334,52 +318,11 @@ static void scvb0Infer(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word
     free(temp_iterA);
 }
 
-void *thread_main(void* arg) {
-	ThreadArgs *thread_args = (ThreadArgs*)arg;
-	Scvb0 *ctx = thread_args->ctx;
-	int *doc_indxes = d_malloc(int, ctx->batch_size);
-
-	for(int i=0; i < ctx->n_iter; i++){
-		if (i % ctx->n_thread != thread_args->thread_no) continue;
-
-		struct timeval startTime, endTime;
-		gettimeofday(&startTime, NULL);
-		//if (i % ctx->n_thread == 0){
-		if ((i + 1) % 500 == 0){
-			fprintf(stderr, "perplexity:%f\n", perplexity(ctx, thread_args->word_indexes_ptr, thread_args->word_counts_ptr, thread_args->n_word_type_each_doc));
-		}
-
-		ctx->rhoPhi = 10. / pow(1000. + i, 0.9);
-		ctx->rhoTheta = 1. / pow(10. + i, 0.9);
-
-		for (int j=0; j < ctx->batch_size; j++){
-			doc_indxes[j] = xor128() % thread_args->n_document;
-		}
-		scvb0Infer(ctx,
-					thread_args->word_indexes_ptr,
-					thread_args->word_counts_ptr,
-					thread_args->n_word_each_doc,
-					thread_args->n_word_type_each_doc,
-					0,
-					ctx->batch_size,
-					doc_indxes);
-		gettimeofday(&endTime, NULL);
-		time_t diffsec = difftime(endTime.tv_sec, startTime.tv_sec);
-		suseconds_t diffsub = endTime.tv_usec - startTime.tv_usec;
-		float realsec = diffsec + diffsub * 1e-6;
-		if ((i + 1) % 500 == 0){
-    		fprintf(stderr, "%d: %d / %d (%.3lfsec)\n", thread_args->thread_no, i, ctx->n_iter, realsec);
-		}
-	}
-	return 0;
-}
-
 void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_ptr, int* n_word_each_doc, int* n_word_type_each_doc,unsigned long long n_all_word, int n_document, int n_word_type){
-    int i, j, k, v, d;
+    int k, v, d;
     ctx->n_all_word = n_all_word;
     ctx->n_word_type = n_word_type;
     ctx->n_document = n_document;
-
     ctx->gamma = d_malloc(double, ctx->n_topic);
     ctx->nzHat = d_malloc(double, ctx->n_topic);
     ctx->nPhiHat = d_malloc(double, ctx->n_word_type * ctx->n_topic);
@@ -388,7 +331,7 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
     ctx->nTheta = d_malloc(double, n_document * ctx->n_topic);
     ctx->Theta = d_malloc(double, n_document * ctx->n_topic);
     
-    fprintf(stderr, "ctx->n_word_type:%d ctx->n_topic:%d\n", ctx->n_word_type, ctx->n_topic);
+    int *doc_indxes = d_malloc(int, ctx->batch_size);
     for(k=0; k < ctx->n_topic; k++){
         double sum_nPhi = 0.;
         for(v=0; v < ctx->n_word_type; v++){
@@ -403,42 +346,24 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
             ctx->nTheta[d * ctx->n_topic + k] = (double)rand() / RAND_MAX;
         }
     }
-
-    pthread_t *thread = d_malloc(pthread_t, ctx->n_thread);
-	int  *iret = d_malloc(int, ctx->n_thread);
-	ThreadArgs **thread_args = d_malloc(ThreadArgs*, ctx->n_thread);
-	for (int i=0; i < ctx->n_thread; i++) {
-		thread_args[i] = d_malloc(ThreadArgs, 1);
-		thread_args[i]->thread_no = i;
-		thread_args[i]->word_indexes_ptr = word_indexes_ptr;
-		thread_args[i]->word_counts_ptr = word_counts_ptr;
-		thread_args[i]->ctx = ctx;
-		thread_args[i]->n_word_each_doc = n_word_each_doc;
-		thread_args[i]->n_word_type_each_doc = n_word_type_each_doc;
-		thread_args[i]->n_document = n_document;
-	}
-
-	for (int i=0; i < ctx->n_thread; i++) {
-		iret[i] = pthread_create( &thread[i], NULL, thread_main, (void*) thread_args[i]);
-		sleep(rand() % 7 + 1);
-	}
-
-	for (int i=0; i < ctx->n_thread; i++) {
-		int ret1 = pthread_join(thread[i], NULL);
-		if (ret1 != 0) {
-			//errc(EXIT_FAILURE, ret1, "can not join thread 1");
-			fprintf(stderr, "can not join thread\n");
-			exit(1);
+    
+   for(int i=0; i < ctx->n_iter; i++){
+    	ctx->rhoPhi = 10. / pow(1000. + i, 0.9);
+		ctx->rhoTheta = 1. / pow(10. + i, 0.9);
+		//文書をランダムにサンプリング
+		for (int j=0; j < ctx->batch_size; j++){
+			doc_indxes[j] = xor128() % n_document;
 		}
-	}
-
-	for (int i=0; i < ctx->n_thread; i++) {
-		free(thread_args[i]);
-	}
-	free(thread_args);
-	free(iret);
-	free(thread);
-
+		scvb0Infer(ctx,
+					word_indexes_ptr,
+					word_counts_ptr,
+					n_word_each_doc,
+					n_word_type_each_doc,
+					0,
+					ctx->batch_size,
+					doc_indxes);
+    }
+    
     scvb0EstTheta(ctx, ctx->Theta);
 
     free(ctx->gamma);
@@ -446,7 +371,7 @@ void scvb0Fit(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_p
     free(ctx->nPhiHat);
     free(ctx->nz);
     free(ctx->nTheta);
-    //free(ctx->Theta);
+
     ctx->Phi = d_malloc(double, ctx->n_word_type * ctx->n_topic);
     for (k = 0; k < ctx->n_topic; k++) {
         double normSum = 0;

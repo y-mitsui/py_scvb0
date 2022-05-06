@@ -53,6 +53,9 @@ double *scvb0TransformSingle(Scvb0 *ctx, int *doc_word, int n_word, int max_iter
 double *scvb0FitTransform(Scvb0 *ctx, int** word_indexes_ptr, unsigned short** word_counts_ptr, int* n_word_each_doc, int* n_word_type_each_doc,unsigned long long n_all_word, int n_document, int n_word_type);
 void scvb0Free(Scvb0* ctx);
 
+int scvb0Sample(const char *path, int ***word_indexes_r, unsigned short ***word_counts_r, int **n_word_type_each_doc_r, int **n_word_each_doc_r, unsigned long long *n_all_word_r, int *n_document_r, int *n_word_type_r);
+void scvb0FitFile(Scvb0 *ctx, const char *path);
+
 #ifdef __cplusplus
 }
 #endif
