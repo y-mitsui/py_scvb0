@@ -21,7 +21,8 @@ batch_size: int: ミニバッチで使う文書数
 ```
 メソッド：
 ```
-fit(corpus): corpusを基に学習します。戻り値は(文書分布、単語ベクトル)のタプル
+fit(corpus): corpusを基に学習します。戻り値は(文書ごとのトピック分布、単語ベクトル)のタプル
+transformSingle(self, corpus_row): 学習結果を基に、新しく観測された一つの文書のトピック分布を獲得します。
 ```
 corpusのフォーマットはgensimと同じになります。  
 より詳しい説明はexample.pyをご覧ください。  

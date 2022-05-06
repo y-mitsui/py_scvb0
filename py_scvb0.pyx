@@ -38,7 +38,7 @@ cdef class PyScvb0:
         free(self.scvb0)
     
     def transformSingle(self, corpus_row):
-        n_words = np.sum(map(lambda x:x[1], corpus_row))
+        n_words = np.sum(list(map(lambda x:x[1], corpus_row)))
         cdef int *doc_word = <int*>malloc(sizeof(int) * n_words)
         n_words = 0
         for w_i, w_c in corpus_row:
