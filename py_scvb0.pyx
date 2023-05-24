@@ -26,10 +26,10 @@ cdef class PyScvb0:
         self.n_topics = n_topics
     
     def save(self, file_path):
-        scvb0Save(self.scvb0, file_path)
+        scvb0Save(self.scvb0, bytes(file_path, "utf-8"))
         
     def load(self, file_path):
-        self.scvb0 = scvb0Load(file_path)
+        self.scvb0 = scvb0Load(bytes(file_path, "utf-8"))
         self.n_topics = self.scvb0.n_topic
     
     def __dealloc__(self):
@@ -50,6 +50,7 @@ cdef class PyScvb0:
         topics = []
         for i in range(self.n_topics):
             topics.append(result[i])
+        free(result)
         return np.array(topics) / np.sum(topics)
     
     def _getParams(self):
